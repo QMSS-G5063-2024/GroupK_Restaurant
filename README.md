@@ -1,4 +1,11 @@
-# GroupK_Restaurant
+## GroupK Repo for the final project 
 
-## This is GroupK's repo for the final project 
+Title: Trend of restaurant development in US
+
+Group Member:
+Yunhong Feng yf2675@columbia.edu
+Xiaoya Wang xw2931@columbia.edu
+Hanting Lei
+Jiahui Yang
+
 
