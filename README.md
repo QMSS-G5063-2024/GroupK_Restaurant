@@ -12,4 +12,4 @@ Hanting Lei hl3712@columbia.edu
 
 Jiahui Yang jy3328@columbia.edu
 
-
+Link to the final output: https://groupkdatavisualizationproject.shinyapps.io/groupk-restaurant/
