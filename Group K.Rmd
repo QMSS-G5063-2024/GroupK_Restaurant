@@ -1,0 +1,337 @@
+---
+title: "Group K"
+output: html_document
+date: "2024-04-20"
+---
+```{r}
+library(shiny)
+library(shinydashboard)
+library(dplyr)
+library(ggplot2)
+library(leaflet)
+library(DT)
+library(tidyverse)
+library(ggmap)
+library(maps)
+library(mapdata)
+library(sf)
+library(ggspatial)
+library(wordcloud)
+library(tm)
+library(RColorBrewer)
+library(shinyjs)
+
+data <- read.csv("Restaurant_info.csv")
+
+data_cleaned <- data %>%
+  separate_rows(cuisines, sep = ",") %>%
+  mutate(cuisines = str_trim(cuisines)) %>%
+  mutate(cuisines = str_replace_all(cuisines, " Restaurants", "")) %>%
+  mutate(cuisines = if_else(str_detect(cuisines, "Veg"), "Vegetarian", cuisines)) %>%
+  rename(state = province) %>%
+  select(name, city, address, cuisines, state, priceRangeMin, priceRangeMax,id, latitude, longitude)
+
+
+NY_restaurants <- data_cleaned %>% 
+  filter(cuisines %in% c("Indian", "Japanese", "Chinese", "Italian", "American")) %>%
+  filter(city == "New York") %>% select(id, cuisines, latitude, longitude)
+register_google(key = "AIzaSyAtPKhKiEwCBm6wtOgDAEn7Meli9RsSpTA")
+
+BK_restaurants <- data_cleaned %>% 
+  filter(cuisines %in% c("Indian", "Japanese", "Chinese", "Italian", "American")) %>%
+  filter(city == "Brooklyn") %>% select(id, cuisines, latitude, longitude)
+
+leaflet_data <- data %>% 
+  mutate(Price_Range = paste("$", priceRangeMin, "-", priceRangeMax, "USD")) %>%
+  select(name, city, address, imageURLs, primaryCategories, latitude, longitude,
+    paymentTypes, Price_Range, websites, menus.amountMin) %>%
+  mutate(websites = strsplit(as.character(websites), ","), 
+         websites = sapply(websites, function(x) x[1])) # Extract the first website
+
+
+leaflet_data2 <- data_cleaned %>%
+  mutate(Price_Range = if_else(priceRangeMax > 800, "Over 800",
+                cut(priceRangeMax,
+                    breaks = c(0, 200, 400, 600, 800),
+                    labels = c("0-200", "201-400", "401-600", "601-800"),
+                    include.lowest = TRUE)))
+
+```
+
+```{r}
+
+ui <- dashboardPage(
+  dashboardHeader(title = "Exploring Culinary Landscapes: An Interactive Analysis of Restaurant Data"),
+  dashboardSidebar(),
+  dashboardBody(
+    tags$style(HTML("
+      h1, h2 {
+        font-family: 'Arial', sans-serif;
+        color: #333333;
+      }
+      h1 {
+        font-size: 24px; 
+        color: #0078d4; 
+      }
+      h2 {
+        font-size: 20px;
+        color: #0078d4;
+      }
+      p {
+        font-family: 'Arial', sans-serif;
+        font-size: 16px;
+        color: #666666; 
+      }
+    ")),
+    HTML("<h1>Exploring Culinary Landscapes: An Interactive Analysis of Restaurant Data</h1>
+         <h2>Project Team:</h2>
+         <ul>
+           <li>Yunhong Feng、Xiaoya Wang、Hanting Lei、Jiahui Yang</li>
+         </ul>"),
+    
+    HTML("<h2>Introduction</h2>
+         <p>In this project, we delve into the rich world of culinary diversity across major U.S. cities by leveraging a comprehensive dataset of restaurant information. Our primary goal is to uncover the prevailing culinary trends, understand regional preferences, and provide a dynamic interface for users to explore the data interactively. Utilizing R programming and its powerful libraries, we perform extensive data cleaning, analysis, and visualization to bring these culinary landscapes to life.</p>"),
+    
+    HTML("<h2>Data Preparation</h2>
+         <p>
+Our analysis begins with the `Restaurant_info.csv` dataset, which we preprocess using R's `tidyverse` suite. We standardize cuisine names, remove redundancies, and ensure data quality to prepare for robust analysis. This meticulous process allows us to accurately classify and count cuisine types across various states and cities.</p>"),
+    
+    HTML("<h2>Cuisine Analysis</h2>
+         <p>
+We create a word cloud to visually represent the frequency of different cuisines, offering an immediate sense of the most popular choices nationwide. Further, we conduct a detailed comparison of the top 10 cuisines in New York, Los Angeles, and Chicago, utilizing `ggplot2` for clear and informative visualizations that highlight regional culinary preferences.</p>"),
+    
+    plotOutput("wordCloudPlot"),
+    
+    HTML("<h2>Top 10 Most Popular Cuisines</h2>
+         <p>
+This analysis provides insights into the most popular cuisines in selected cities. Explore the culinary preferences and trends that characterize the local food scene.</p>"),
+    
+    plotOutput("cuisinePlot"),
+    
+    
+    HTML("<h2>Mapping the Vegetarian Landscape</h2>
+        <p>
+Our interactive map offers a closer look at the vegetarian landscape across urban centers. By aggregating data at the city level, we highlight areas with a higher concentration of vegetarian restaurants. Users can interact with the map to discover the number of vegetarian dining options available in each city, gaining insight into how plant-based eating trends vary by location.</p>"),
+    
+    leafletOutput("cityMap"),
+    
+    HTML("<h2>Diverse Cuisines of New York City</h2>
+        <p>
+The bustling streets of New York City are home to a rich tapestry of culinary offerings. Our analysis dives into five popular cuisines - Indian, Japanese, Chinese, Italian, and American - showcasing their presence across different neighborhoods. By mapping out these restaurants, we aim to provide a snapshot of the city's diverse food scene, offering a guide for locals and tourists alike to explore the flavors that make New York a gastronomic hub.</p>"),
+    
+    plotOutput("nycCuisineMap"),
+    
+    plotOutput("bkCuisineMap"),
+    
+    
+    HTML("<h2>Interactive Exploration of Restaurants</h2>
+          <p>
+        Discover a world of dining experiences with our Interactive US Restaurant Map. This feature allows users to explore the vast array of restaurants across various cities, offering a deep dive into the culinary culture of each locale. Whether you're craving sushi in Los Angeles, pizza in Chicago, or a gourmet experience in New York, our map serves as your digital guide. Click on any marker to reveal details about each restaurant, from their menu highlights to their website for reservations. Navigate through the map to plan your next meal or to simply savor the rich tapestry of America's restaurant scene from the comfort of your screen.</p>"),
+    
+    fluidRow(
+      column(3, offset = 9,  # Adjust offset to move the input closer to the map
+             selectInput("citySelect", "Choose a city:", choices = unique(leaflet_data$city))
+      ),
+      column(9,
+             leafletOutput("map")
+      )
+    ),
+    
+    HTML("<h2>Interactive Restaurant Map</h2>
+            <p>Explore detailed information about restaurants across various cities. Select a city from the dropdown menu to see specific restaurant details on the map.</p>"),
+    
+    
+    fluidRow(
+      column(3, offset = 9,
+             selectInput("cityInput", "Select City:", choices = unique(leaflet_data2$city)),
+             selectInput("cuisineInput", "Select Cuisine Type:", choices = c("All" = "All", unique(leaflet_data2$cuisines))),
+             selectInput("priceInput", "Select Price Range:", choices = c("All" = "All", "0-200", "201-400", "401-600", "601-800", "Over 800")),
+             actionButton("goButton", "Find Restaurants")
+      ),
+      column(9,
+             leafletOutput("map2")
+      )
+    ),
+    HTML("<h2>Conclusion</h2>
+         <p>This project not only sheds light on the culinary diversity found in major U.S. cities but also demonstrates the power of interactive web applications in enhancing user engagement and understanding of data. The insights gained through our analysis could serve stakeholders from food enthusiasts to business analysts in making informed decisions or simply exploring culinary options.</p>"),
+  )
+  
+)
+
+
+
+
+server <- function(input, output) {
+  output$wordCloudPlot <- renderPlot({
+    cuisine_list <- unlist(data_cleaned$cuisines)
+    cuisine_df <- data.frame(table(cuisine_list))
+    colnames(cuisine_df) <- c("Cuisine", "Frequency")
+    
+    wordcloud(words = cuisine_df$Cuisine, freq = cuisine_df$Frequency, min.freq = 1,
+              max.words = 200, random.order = FALSE, rot.per = 0.35,
+              colors = brewer.pal(8, "Dark2"))
+  })
+  
+  
+  output$cuisinePlot <- renderPlot({
+    ny_cuisines <- data_cleaned %>% filter(city == "New York") %>% count(cuisines) %>% arrange(desc(n)) %>% top_n(10, n)
+    
+    la_cuisines <- data_cleaned %>% filter(city == "Los Angeles") %>% count(cuisines) %>% arrange(desc(n)) %>% top_n(10, n)
+    
+    chicago_cuisines <- data_cleaned %>% filter(city == "Chicago") %>% count(cuisines) %>% arrange(desc(n)) %>% top_n(10, n)
+    
+    combined_cuisines <- bind_rows(
+      ny_cuisines %>% mutate(city = "New York"),
+      la_cuisines %>% mutate(city = "Los Angeles"),
+      chicago_cuisines %>% mutate(city = "Chicago"))
+    
+    # Plot the data
+    ggplot(combined_cuisines, aes(x = reorder(cuisines, n), y = n, fill = city)) +
+      geom_col() +
+      facet_wrap(~city, scales = "free") +
+      scale_y_log10() +  # Apply logarithmic scale
+      coord_flip() +
+      labs(title = "Top 10 Most Popular Cuisines in New York, Los Angeles, and Chicago",
+           x = "Cuisine",
+           y = "Frequency (log scale)") +
+      theme_minimal() +
+      theme(legend.position = "bottom",
+            axis.text.y = element_text(size = 9))
+  })
+  
+  
+  output$cityMap <- renderLeaflet({
+    us_cities <- maps::us.cities
+    us_cities_sf <- st_as_sf(us_cities, coords = c("long", "lat"), crs = 4326) %>%
+      mutate(long = st_coordinates(.)[, 1],
+             lat = st_coordinates(.)[, 2])
+    us_cities_sf$name <- gsub(" [A-Z]{2}$", "", us_cities_sf$name)
+    
+    vegetarian_counts_city <- data_cleaned %>% filter(cuisines == "Vegetarian") %>% count(city) %>% arrange(desc(n))
+    
+    city_map_data <- us_cities_sf %>% left_join(vegetarian_counts_city, by = c("name" = "city")) %>%
+      mutate(lat = as.numeric(lat), long = as.numeric(long))
+    
+    leaflet(city_map_data) %>%
+      addTiles() %>%  # Add default OpenStreetMap map tiles
+      addCircles(
+        lng = ~long, lat = ~lat, weight = 1,
+        radius = ~n * 50, 
+        color = '#ffa500', fill = TRUE, fillColor = '#ffa500',
+        popup = ~paste(name, ":", n, "vegan restaurants")
+      )
+    
+  })
+  
+  output$nycCuisineMap <- renderPlot({
+    NY_restaurants <- data_cleaned %>% 
+      filter(cuisines %in% c("Indian", "Japanese", "Chinese", "Italian", "American")) %>%
+      filter(city == "New York") %>% select(id, cuisines, latitude, longitude)
+    register_google(key = "AIzaSyAtPKhKiEwCBm6wtOgDAEn7Meli9RsSpTA")
+    
+    nyc_center <- c(lon = -74, lat = 40.725)
+    nyc_map <- get_map(location = nyc_center, zoom = 13, maptype = "hybrid")
+    
+    ggmap(nyc_map) +
+      geom_point(data = NY_restaurants, aes(x = longitude, y = latitude, color = cuisines), alpha = 0.5, size = 3) +
+      ggtitle("Restaurants in New York") +
+      theme(legend.position = "bottom") +
+      scale_color_manual(values = c("Indian" = "green", "Japanese" = "blue", "Chinese" = "red", "Italian" = "purple", "American" = "orange"))
+    
+  })
+  
+  output$bkCuisineMap <- renderPlot({
+    BK_restaurants <- data_cleaned %>% 
+      filter(cuisines %in% c("Indian", "Japanese", "Chinese", "Italian", "American")) %>%
+      filter(city == "Brooklyn") %>% select(id, cuisines, latitude, longitude)
+    
+    BK_center <- c(lon = -73.97, lat = 40.6782)
+    BK_map <- get_map(location = BK_center, zoom = 13, maptype = "hybrid")
+    
+    ggmap(BK_map) +
+      geom_point(data = BK_restaurants, aes(x = longitude, y = latitude, color = cuisines), alpha = 0.5, size = 3) +
+      ggtitle("Restaurants in Brooklyn") +
+      theme(legend.position = "bottom") +
+      scale_color_manual(values = c("Indian" = "green", "Japanese" = "blue", "Chinese" = "red", "Italian" = "purple", "American" = "orange"))
+    
+  })
+  
+  
+  output$map <- renderLeaflet({
+    leaflet(data = leaflet_data) %>%
+      addTiles() %>%
+      addMarkers(
+        lng = ~longitude, lat = ~latitude,
+        popup = ~paste(
+          "<img src='", imageURLs, "' style='width:150px; height:auto;'><br>",
+          "Restaurant Name: ", name, "<br>",
+          "Cuisine Type: ", primaryCategories, "<br>",
+          "Address: ", address, "<br>",
+          "Price Range: ", Price_Range, "<br>",
+          "Payment Acceptance: ", paymentTypes, "<br>",
+          "Website: ", "<a href='", websites, "' target='_blank'>Visit Website</a>", sep = "")) %>%
+      setView(lng = -98.5795, lat = 39.8283, zoom = 4)  # Default view
+  })
+  
+  observe({
+    # Filter data based on selected city
+    city_data <- leaflet_data %>%
+      filter(city == input$citySelect)
+    
+    # Update map based on selected city
+    leafletProxy("map", data = city_data) %>%
+      clearMarkers() %>%
+      addMarkers(
+        lng = ~longitude, lat = ~latitude, popup = ~paste(
+          "<img src='", imageURLs, "' style='width:150px; height:auto;'><br>",
+          "Restaurant Name: ", name, "<br>",
+          "Cuisine Type: ", primaryCategories, "<br>",
+          "Address: ", address, "<br>",
+          "Price Range: ", Price_Range, "<br>",
+          "Payment Acceptance: ", paymentTypes, "<br>",
+          "Website: ", "<a href='", websites, "' target='_blank'>Visit Website</a>", sep = "")) %>%
+      setView(lng = mean(city_data$longitude), lat = mean(city_data$latitude), zoom = 12)
+  })
+  
+  output$map2 <- renderLeaflet({
+    leaflet(data = leaflet_data) %>%
+      addTiles() %>%
+      addMarkers(
+        lng = ~longitude, lat = ~latitude,
+        popup = ~paste(
+          "<img src='", imageURLs, "' style='width:150px; height:auto;'><br>",
+          "Restaurant Name: ", name, "<br>",
+          "Cuisine Type: ", primaryCategories, "<br>",
+          "Address: ", address, "<br>",
+          "Price Range: ", Price_Range, "<br>",
+          "Payment Acceptance: ", paymentTypes, "<br>",
+          "Website: ", "<a href='", websites, "' target='_blank'>Visit Website</a>", sep = "")
+      ) %>%
+      setView(lng = -98.5795, lat = 39.8283, zoom = 4)  # Default view
+  })
+  
+  # Update the map based on city selection
+  observeEvent(input$citySelect, {
+    city_data <- leaflet_data %>% filter(city == input$citySelect)
+    leafletProxy("map", data = city_data) %>%
+      clearMarkers() %>%
+      addMarkers(
+        lng = ~longitude, lat = ~latitude, popup = ~paste(
+          "<img src='", imageURLs, "' style='width:150px; height:auto;'><br>",
+          "Restaurant Name: ", name, "<br>",
+          "Cuisine Type: ", primaryCategories, "<br>",
+          "Address: ", address, "<br>",
+          "Price Range: ", Price_Range, "<br>",
+          "Payment Acceptance: ", paymentTypes, "<br>",
+          "Website: ", "<a href='", websites, "' target='_blank'>Visit Website</a>", sep = "")
+      ) %>%
+      setView(lng = mean(city_data$longitude), lat = mean(city_data$latitude), zoom = 12)
+  })
+  
+}
+
+shinyApp(ui, server)
+```
+
+Here is the final website output:
+https://groupkdatavisualizationproject.shinyapps.io/groupk-restaurant/
